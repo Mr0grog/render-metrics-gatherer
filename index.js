@@ -2,82 +2,18 @@ const { readFile, writeFile, stat, mkdir } = require("node:fs/promises");
 const { dirname } = require("node:path");
 const { RenderPrivateApi } = require("./lib/render-private-api");
 const { createCronRuns } = require("./lib/cron");
-
-const MINUTE = 60 * 1000;
-const DAY = 24 * 60 * MINUTE;
-
-function formatMinutes (ms) {
-  const minutes = ms / 1000 / 60;
-  return minutes.toFixed(2);
-}
-
-function formatMinutesHumane (ms) {
-  const totalSeconds = Math.floor(ms / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}m ${seconds.toString(10).padStart(2, "0")}s`;
-}
-
-function timeBar(ms, totalSize, maxValue = 30 * 60 * 1000, threshold = 10 * 60 * 1000) {
-  if (!ms) return "";
-
-  const thresholdIndex = Math.floor(totalSize * threshold / maxValue);
-  const barSize = Math.min(totalSize * ms / maxValue, totalSize);
-  let bar = "/".repeat(Math.min(barSize, thresholdIndex));
-  if (barSize > thresholdIndex) {
-    bar += "#".repeat(barSize - thresholdIndex);
-  }
-  return bar.padEnd(totalSize);
-}
-
-function padAlign(text, size, alignment) {
-  if (alignment === "right") {
-    return text.padStart(size);
-  } else {
-    return text.padEnd(size);
-  }
-}
-
-function formatTable(fields, rows) {
-  const baseDefinition = { name: "", width: 10, align: "left" };
-  const fieldDefinitions = fields.map((field, index) => {
-    let definition;
-    if (typeof field === "string") {
-      definition = { ...baseDefinition, name: field };
-    } else {
-      definition = { ...baseDefinition, ...field };
-    }
-    if (!field.width && Array.isArray(rows)) {
-      definition.width = Math.max(
-        10,
-        definition.name.length,
-        ...rows.map(r => (r[index]?.toString() ?? "").length)
-      );
-    }
-    return definition;
-  });
-
-  const formattedRows = [
-    `| ${fieldDefinitions.map(f => padAlign(f.name, f.width, f.align)).join(" | ")} |`,
-    `| ${fieldDefinitions.map(f => "-".repeat(f.width)).join(" | ")} |`,
-  ];
-
-  for (const row of rows) {
-    const formatted = row.map((cell, index) => {
-      const text = cell?.toString() ?? "";
-      const field = fieldDefinitions[index];
-      return padAlign(text, field.width, field.align);
-    });
-    formattedRows.push(`| ${formatted.join(" | ")} |`);
-  }
-
-  return formattedRows.join("\n");
-}
+const {
+  MINUTE,
+  DAY,
+  formatTable,
+  formatMinutesHumane,
+  timeBar,
+} = require("./lib/format");
 
 /**
  * @param {ReturnType<createCronRuns>} runs
  */
-function logRuns(runs) {
+function logRunsTable(runs) {
   console.log(formatTable([
     { name: "Queued Time", width: 24 },
     // { name: "Start Time", width: 24 },
@@ -123,27 +59,44 @@ async function getCachedData (key, expirationMs, fetchData) {
 }
 
 async function main(args) {
-  const serviceId = args[0];
-  const fromTime = new Date(Date.now() - 21 * DAY).toISOString();
+  const serviceIds = args.filter(arg => !arg.startsWith("-"));
+  const pretty = args.includes("--pretty");
 
-  console.error("Getting metrics for services:", serviceId);
+  let fromTime = new Date(Date.now() - 21 * DAY).toISOString();
+  for (const arg of args) {
+    const match = arg.match(/^--from=(\d{4}-\d\d-\d\d.*)$/);
+    if (match) {
+      fromTime = new Date(match[1]).toISOString();
+      break;
+    }
+  }
+
+  console.error("Getting metrics for services:", serviceIds);
   console.error(`Since ${fromTime}`);
 
-  const { events, logs } = await getCachedData(serviceId, 30 * MINUTE, async () => {
-    const privateApi = RenderPrivateApi.fromEnv();
+  for (const serviceId of serviceIds) {
+    const { events, logs } = await getCachedData(serviceId, 30 * MINUTE, async () => {
+      const privateApi = RenderPrivateApi.fromEnv();
 
-    console.error("Querying events and logs...");
-    const [events, logs] = await Promise.all([
-      privateApi.getEvents(serviceId, fromTime),
-      privateApi.getLogs(serviceId),
-    ]);
+      console.error("Querying events and logs...");
+      const [events, logs] = await Promise.all([
+        privateApi.getEvents(serviceId, fromTime),
+        privateApi.getLogs(serviceId),
+      ]);
 
-    return { events, logs };
-  });
+      return { events, logs };
+    });
 
-  const runs = await createCronRuns(events, logs);
-  logRuns(runs);
-  // console.log(JSON.stringify(runs, null, 2));
+    const runs = await createCronRuns(serviceId, events, logs);
+    if (pretty) {
+      console.log("=".repeat(75));
+      console.log(`Cron Runs for ${serviceId}\n`);
+      logRunsTable(runs);
+      console.log("");
+    } else {
+      console.log(JSON.stringify(runs, null, 2));
+    }
+  }
 }
 
 if (require.main === module) {
