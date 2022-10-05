@@ -1,0 +1,17 @@
+{
+  "name": "render-metrics",
+  "version": "0.1.0",
+  "description": "A hacky tool to gather metrics on services running in Render.com",
+  "main": "index.js",
+  "directories": {
+    "lib": "lib"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Rob Brackett <rob@robbrackett.com>",
+  "license": "BSD-3-Clause",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
