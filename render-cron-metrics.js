@@ -1,9 +1,8 @@
 #!/usr/bin/env node
 
-const { readFile, writeFile, stat, mkdir } = require("node:fs/promises");
-const { dirname } = require("node:path");
 const { RenderPrivateApi } = require("./lib/render-private-api");
 const { createCronRuns } = require("./lib/cron");
+const { getCachedData } = require("./lib/cache");
 const {
   MINUTE,
   DAY,
@@ -39,25 +38,6 @@ function logRunsTable(runs) {
     formatMinutesHumane(run.sinceLastRunFinished),
     run.status === 2 ? "error" : run.status === 3 ? "cancel" : ""
   ])));
-}
-
-async function getCachedData (key, expirationMs, fetchData) {
-  const cachePath = `./.cache/c-${key}.json`;
-  let isCached = false;
-  try {
-    const fileInfo = await stat(cachePath);
-    isCached = Date.now() - fileInfo.mtimeMs < expirationMs;
-  } catch (error) {}
-
-  if (isCached) {
-    const fileText = await readFile(cachePath, {encoding: "utf-8"});
-    return JSON.parse(fileText);
-  } else {
-    const data = await fetchData();
-    await mkdir(dirname(cachePath), { recursive: true });
-    await writeFile(cachePath, JSON.stringify(data), { encoding: "utf-8" });
-    return data;
-  }
 }
 
 async function main(args) {
